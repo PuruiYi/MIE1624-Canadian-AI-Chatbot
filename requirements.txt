@@ -1,0 +1,15 @@
+streamlit>=1.30.0
+crewai==1.12.2
+langchain==0.1.17
+langchain-core>=0.1.0
+langchain-community==0.0.38
+langchain-openai==0.1.17
+langchain-text-splitters>=0.0.1
+faiss-cpu
+pypdf
+docx2txt
+tiktoken
+openai
+sentence-transformers
+duckduckgo-search
+pydantic
