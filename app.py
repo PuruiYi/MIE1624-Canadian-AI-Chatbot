@@ -35,7 +35,7 @@ CHUNK_SIZE = 800
 CHUNK_OVERLAP = 300
 LLM_MODEL = "gpt-4o-mini"
 LLM_TEMPERATURE = 0.2
-MAX_RETRIES = 5
+DEFAULT_MAX_RETRIES = 3
 DOCS_FOLDER = "./my_documents/"
 PERSIST_DIR = "./canada_ai_vectorstore"
 
@@ -297,14 +297,21 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     }
 
 
-def ask_with_validation(question, researcher, analyst, writer, validator_llm, memory, status_container):
-    """Full pipeline: crew → validate → self-correct up to MAX_RETRIES."""
+def ask_with_validation(question, researcher, analyst, writer, validator_llm, memory, status_container, max_retries=5):
+    """Full pipeline: crew → validate → self-correct up to max_retries."""
+    st.session_state.stop_requested = False
     status_container.info("🔍 **Agents working …** Researcher → Analyst → Writer")
     response = run_crew(question, researcher, analyst, writer)
 
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(max_retries):
+        # ── Check if user clicked Stop ───────────────────────────────────
+        if st.session_state.get("stop_requested", False):
+            status_container.warning("🛑 **Stopped by user** — returning current response.")
+            st.session_state.stop_requested = False
+            return str(response)
+
         memory.save_context({"input": question}, {"output": str(response)})
-        status_container.info(f"✅ **Validating …** (attempt {attempt + 1}/{MAX_RETRIES})")
+        status_container.info(f"✅ **Validating …** (attempt {attempt + 1}/{max_retries})")
         result = validate_response(str(response), question, validator_llm)
 
         if result["status"] == "APPROVED":
@@ -321,6 +328,7 @@ def ask_with_validation(question, researcher, analyst, writer, validator_llm, me
         response = validator_llm.invoke(correction_prompt).content
 
     status_container.warning("⚠️ Max retries reached — returning best available response.")
+    st.session_state.stop_requested = False
     return str(response)
 
 
@@ -340,20 +348,30 @@ def main():
         "Researcher → Analyst → Writer — with self-correcting validation."
     )
 
+    # ── Load API key silently from secrets/env ─────────────────────────────
+    api_key = load_api_key()
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+
     # ── Sidebar ──────────────────────────────────────────────────────────────
     with st.sidebar:
         st.header("⚙️ Settings")
-        api_key = st.text_input("OpenAI API key", type="password", value=load_api_key())
-        if api_key:
-            os.environ["OPENAI_API_KEY"] = api_key
-
-        st.divider()
         st.markdown("**Architecture**")
         st.markdown(
             "1. **Researcher** — retrieves facts via RAG + web search\n"
             "2. **Analyst** — interprets through Strategy 2.0 lens\n"
             "3. **Writer** — synthesizes a clear answer\n"
             "4. **Validator** — checks 4 rules, auto-fixes if needed"
+        )
+        st.divider()
+        st.markdown("**Validation retries**")
+        max_retries = st.number_input(
+            "Max validation retries",
+            min_value=1,
+            max_value=20,
+            value=DEFAULT_MAX_RETRIES,
+            step=1,
+            help="How many times the validator may revise the response before returning.",
         )
         st.divider()
         st.markdown("**Sample questions**")
@@ -368,7 +386,7 @@ def main():
 
     # ── Guard: need API key ──────────────────────────────────────────────────
     if not os.environ.get("OPENAI_API_KEY"):
-        st.warning("Please enter your OpenAI API key in the sidebar to get started.")
+        st.warning("No API key found. Set OPENAI_API_KEY in Streamlit secrets or as an environment variable.")
         st.stop()
 
     # ── Guard: need documents ────────────────────────────────────────────────
@@ -383,9 +401,11 @@ def main():
     build_vectorstore()
     researcher, analyst, writer, validator_llm, memory = build_agents()
 
-    # ── Chat history ─────────────────────────────────────────────────────────
+    # ── Session-state defaults ─────────────────────────────────────────────
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "stop_requested" not in st.session_state:
+        st.session_state.stop_requested = False
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -404,11 +424,16 @@ def main():
         # Run agent pipeline
         with st.chat_message("assistant"):
             status = st.empty()
+            stop_col = st.empty()
+            stop_col.button("⏹ Stop generating", key="stop_btn",
+                            on_click=lambda: st.session_state.update(stop_requested=True))
             with st.spinner("Thinking …"):
                 answer = ask_with_validation(
                     user_input, researcher, analyst, writer,
                     validator_llm, memory, status,
+                    max_retries=max_retries,
                 )
+            stop_col.empty()          # remove stop button once done
             st.markdown(answer)
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
