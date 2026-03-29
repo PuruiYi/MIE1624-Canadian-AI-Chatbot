@@ -27,7 +27,7 @@ from langchain_openai import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
 
 # ── CrewAI imports ───────────────────────────────────────────────────────────
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, LLM
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from duckduckgo_search import DDGS
@@ -188,7 +188,7 @@ def build_agents():
     api_key = load_api_key()
     os.environ["OPENAI_API_KEY"] = api_key
 
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=LLM_TEMPERATURE, api_key=api_key)
+    llm = LLM(model=LLM_MODEL, temperature=LLM_TEMPERATURE)
 
     rag_tool = RagSearchTool()
     web_search_tool = WebSearchTool()
