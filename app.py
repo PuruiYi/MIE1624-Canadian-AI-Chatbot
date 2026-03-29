@@ -13,9 +13,7 @@ Usage:
 
 import os
 import re
-import shutil
 import streamlit as st
-from typing import Type
 
 # ── LangChain / vector-store imports ─────────────────────────────────────────
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -24,12 +22,10 @@ from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain_community.document_loaders.word_document import Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationSummaryBufferMemory
 
 # ── CrewAI imports ───────────────────────────────────────────────────────────
 from crewai import Agent, Task, Crew, Process, LLM
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from crewai.tools import BaseTool
 from duckduckgo_search import DDGS
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,7 +43,13 @@ PERSIST_DIR = "./canada_ai_vectorstore"
 # API KEY
 # ─────────────────────────────────────────────────────────────────────────────
 def load_api_key() -> str:
-    """Try env var first, then fall back to a local file."""
+    """Try Streamlit secrets, then env var, then local file."""
+    try:
+        key = st.secrets["OPENAI_API_KEY"]
+        if key:
+            return key
+    except (KeyError, FileNotFoundError):
+        pass
     key = os.environ.get("OPENAI_API_KEY", "")
     if key:
         return key
@@ -132,18 +134,14 @@ def build_vectorstore():
 # ─────────────────────────────────────────────────────────────────────────────
 # PART B — Agent Architecture  (cached so agents are created once)
 # ─────────────────────────────────────────────────────────────────────────────
-class RagSearchInput(BaseModel):
-    query: str = Field(description="Question or topic to search in the knowledge base")
-
-
 class RagSearchTool(BaseTool):
     name: str = "Knowledge Base Search"
     description: str = (
         "Search the Canada AI strategy knowledge base for relevant facts, policies, "
         "and analysis. Use for any question about Canada's AI strategy, "
-        "global AI comparisons, or policy recommendations."
+        "global AI comparisons, or policy recommendations. "
+        "Pass a 'query' argument with the search question."
     )
-    args_schema: Type[BaseModel] = RagSearchInput
 
     def _run(self, query: str) -> str:
         try:
@@ -158,18 +156,14 @@ class RagSearchTool(BaseTool):
             return f"Search failed: {e}"
 
 
-class WebSearchInput(BaseModel):
-    query: str = Field(description="Search query for recent AI policy news")
-
-
 class WebSearchTool(BaseTool):
     name: str = "Web Search"
     description: str = (
         "Search the web for recent news about Canada AI policy, "
         "global AI competitiveness, or AI strategy updates after 2025. "
-        "Use ONLY when the question refers to recent events not in the knowledge base."
+        "Use ONLY when the question refers to recent events not in the knowledge base. "
+        "Pass a 'query' argument with the search question."
     )
-    args_schema: Type[BaseModel] = WebSearchInput
 
     def _run(self, query: str) -> str:
         try:
@@ -216,7 +210,15 @@ def build_agents():
     )
 
     validator_llm = ChatOpenAI(model=LLM_MODEL, temperature=LLM_TEMPERATURE, api_key=api_key)
-    memory = ConversationSummaryBufferMemory(llm=validator_llm, max_token_limit=1000, return_messages=True)
+
+    # Lightweight replacement for deprecated ConversationSummaryBufferMemory.
+    # Chat history is managed by st.session_state.messages.
+    class SimpleMemory:
+        def __init__(self):
+            self.history = []
+        def save_context(self, inputs, outputs):
+            self.history.append({"input": inputs.get("input", ""), "output": outputs.get("output", "")})
+    memory = SimpleMemory()
 
     return researcher, analyst, writer, validator_llm, memory
 
