@@ -273,17 +273,35 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     prompt = f"""
     Review this response to the query: "{query}"
     Response: {response}
-
+    
     Check:
-    RULE 1 — No unsupported statistics (rankings, dollar amounts, percentages).
-    RULE 2 — No country confusion (wrong policy attributed to wrong country).
-    RULE 3 — Question is actually answered directly.
-    RULE 4 — All claims must be evidence-based and traceable.
 
+    RULE 1 — NO UNSUPPORTED STATISTICS
+    Every specific number (rankings, dollar amounts, percentages, 
+    company counts) must be grounded in the retrieved context.
+    Flag any statistic that appears invented or unverifiable.
+    
+    RULE 2 — NO COUNTRY CONFUSION  
+    Claims about specific countries (Canada, Israel, Singapore, UK, 
+    India, Germany) must be accurate. Flag any claim that attributes 
+    the wrong policy or metric to the wrong country.
+    
+    RULE 3 — QUESTION IS ACTUALLY ANSWERED
+    The response must directly answer what the user asked.
+    Flag if the response is vague, off-topic, or only partially answers.
+
+    RULE 4 — ALL CLAIMS MUST BE EVIDENCE-BASED
+    Every claim in the response must be traceable to the retrieved 
+    knowledge base. Flag any claim that appears to come from outside 
+    the provided context or cannot be verified against the source documents.
+    Attempt to provide an external reference (e.g., a URL, citation, or known authoritative source) 
+    so the user can verify it independently. Never present unverified 
+    claims as established fact.
+    
     Respond in this exact format:
     STATUS: APPROVED or REVISE
-    ISSUE: (if REVISE, describe the specific problem)
-    FIX: (if REVISE, the exact instruction to fix it)
+    ISSUE: (if REVISE, describe the specific problem in one sentence)
+    FIX: (if REVISE, write the exact instruction to fix it)
     """
     raw = validator_llm.invoke(prompt).content.strip()
     lines = {
