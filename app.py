@@ -360,11 +360,11 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     Every claim in the response must be traceable to the retrieved 
     knowledge base or external sources. Flag any claim that appears to come from outside 
     the provided context or cannot be verified against the source documents.
-    If the websearch tool was used, claims based on web search must include an external reference 
+    Whenever the websearch tool was used, claims based on web search MUST include an external reference 
     (e.g., a URL, citation, or known authoritative source) 
     so the user can verify it independently. Never present unverified 
     claims as established fact.
-    If the RAG tool was used, claims based on the knowledge base must include a citation label referencing the source document
+    Whenever the RAG tool was used, claims based on the knowledge base MUST include a citation label referencing the source document
     (e.g., "Part 2 — Part2_Report.docx") so the user can verify it independently.
 
     Every response MUST cite all knowledge base sources used by their 
