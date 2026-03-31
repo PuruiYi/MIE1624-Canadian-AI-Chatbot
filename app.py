@@ -437,10 +437,36 @@ def ask_with_validation(question, researcher, analyst, writer, validator_llm, me
 # ─────────────────────────────────────────────────────────────────────────────
 # RESPONSE FORMATTING
 # ─────────────────────────────────────────────────────────────────────────────
-def _highlight_direct_answer(response: str) -> str:
+def _get_key_phrases(response: str, validator_llm) -> list:
     """
-    Wrap the first paragraph of the response (the direct answer) in red HTML.
-    Subsequent paragraphs are rendered as plain markdown.
+    Ask the validator LLM to return 3-5 key phrases or short sentences from
+    the response that carry the most important insight.  Returns a plain list
+    of strings that appear verbatim in the response.
+    """
+    prompt = (
+        "Read the policy response below and identify the 3 to 5 most important "
+        "keywords or short phrases (up to 8 words each) that carry the core insight. "
+        "Return ONLY a Python-style list of strings, e.g.:\n"
+        '["phrase one", "phrase two", "phrase three"]\n'
+        "Use the exact wording from the text. No explanation, no extra text.\n\n"
+        f"Response:\n{response}"
+    )
+    try:
+        raw = validator_llm.invoke(prompt).content.strip()
+        # Strip markdown code fences if present
+        raw = re.sub(r"```[a-z]*", "", raw).strip("` \n")
+        phrases = eval(raw)  # safe: we expect a list of strings
+        if isinstance(phrases, list):
+            return [str(p) for p in phrases if str(p) in response]
+    except Exception:
+        pass
+    return []
+
+
+def _highlight_direct_answer(response: str, key_phrases=None) -> str:
+    """
+    1. Wraps the first paragraph (direct answer) in a red styled block.
+    2. Highlights every key phrase across the full response in yellow.
 
     The Writer agent is instructed to lead with a direct answer, so the first
     non-empty paragraph is treated as that direct answer.
@@ -452,9 +478,30 @@ def _highlight_direct_answer(response: str) -> str:
     direct = paragraphs[0]
     rest   = "\n\n".join(paragraphs[1:])
 
+    # ── 1. Keyword highlighting (yellow) applied to both sections ────────────
+    def _apply_keyword_highlights(text, phrases):
+        for phrase in sorted(phrases, key=len, reverse=True):  # longest first to avoid partial overlaps
+            escaped = re.escape(phrase)
+            highlighted_phrase = (
+                f'<mark style="'
+                f'background: #fff176;'
+                f'color: #1a1a1a;'
+                f'padding: 0 3px;'
+                f'border-radius: 3px;'
+                f'font-weight: 600;'
+                f'">{phrase}</mark>'
+            )
+            text = re.sub(escaped, highlighted_phrase, text, count=1)
+        return text
+
+    if key_phrases:
+        direct = _apply_keyword_highlights(direct, key_phrases)
+        rest   = _apply_keyword_highlights(rest,   key_phrases)
+
+    # ── 2. Red block for the direct answer ───────────────────────────────────
     highlighted = (
         f'<div style="'
-        f'color: #c0392b;'           # rich red
+        f'color: #c0392b;'
         f'font-weight: 600;'
         f'border-left: 4px solid #c0392b;'
         f'padding: 0.5rem 0.75rem;'
@@ -570,7 +617,8 @@ def main():
                     max_retries=max_retries,
                 )
             stop_col.empty()          # remove stop button once done
-            st.markdown(_highlight_direct_answer(answer), unsafe_allow_html=True)
+            key_phrases = _get_key_phrases(answer, validator_llm)
+            st.markdown(_highlight_direct_answer(answer, key_phrases), unsafe_allow_html=True)
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
