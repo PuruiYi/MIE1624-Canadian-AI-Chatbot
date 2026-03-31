@@ -380,6 +380,8 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     reject and instruct the researcher to retrieve the missing sources 
     before approval.
 
+    Check the validity of reference links, if page not found or domain is not credible, flag it as an issue.
+
     Respond in this exact format:
     STATUS: APPROVED or REVISE
     ISSUE: (if REVISE, describe the specific problem in one sentence)
