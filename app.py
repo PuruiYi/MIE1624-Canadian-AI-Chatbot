@@ -435,6 +435,40 @@ def ask_with_validation(question, researcher, analyst, writer, validator_llm, me
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# RESPONSE FORMATTING
+# ─────────────────────────────────────────────────────────────────────────────
+def _highlight_direct_answer(response: str) -> str:
+    """
+    Wrap the first paragraph of the response (the direct answer) in red HTML.
+    Subsequent paragraphs are rendered as plain markdown.
+
+    The Writer agent is instructed to lead with a direct answer, so the first
+    non-empty paragraph is treated as that direct answer.
+    """
+    paragraphs = [p.strip() for p in response.strip().split("\n\n") if p.strip()]
+    if not paragraphs:
+        return response
+
+    direct = paragraphs[0]
+    rest   = "\n\n".join(paragraphs[1:])
+
+    highlighted = (
+        f'<div style="'
+        f'color: #c0392b;'           # rich red
+        f'font-weight: 600;'
+        f'border-left: 4px solid #c0392b;'
+        f'padding: 0.5rem 0.75rem;'
+        f'margin-bottom: 1rem;'
+        f'border-radius: 0 4px 4px 0;'
+        f'background: rgba(192,57,43,0.06);'
+        f'">'
+        f'{direct}'
+        f'</div>'
+    )
+    return highlighted + ("\n\n" + rest if rest else "")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STREAMLIT UI
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
@@ -536,7 +570,7 @@ def main():
                     max_retries=max_retries,
                 )
             stop_col.empty()          # remove stop button once done
-            st.markdown(answer)
+            st.markdown(_highlight_direct_answer(answer), unsafe_allow_html=True)
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
