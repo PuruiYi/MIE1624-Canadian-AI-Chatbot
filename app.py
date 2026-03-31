@@ -364,12 +364,18 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     (e.g., a URL, citation, or known authoritative source) 
     so the user can verify it independently. Never present unverified 
     claims as established fact.
+    If the RAG tool was used, claims based on the knowledge base must include a citation label referencing the source document
+    (e.g., "Part 2 — Part2_Report.docx") so the user can verify it independently.
 
-    Every response MUST include at least one live web search result 
-    with a cited URL or named reference. Try to include more web searches. 
-    If the researcher did not use the Web Search tool, reject and instruct them to search and 
-    incorporate findings before approval. Try to include knowledge base results cited with its source document name, 
-    if it is relevant to the question. The more the better.
+    Every response MUST cite all knowledge base sources used by their 
+    source document name. If the knowledge base is relevant and sufficient 
+    to fully answer the question, web search is optional. If the knowledge 
+    base is irrelevant, discard it and rely solely on web search. If the 
+    knowledge base is relevant but insufficient, supplement it with web 
+    search. In both cases where web search is used, cite at least one 
+    result with a URL or named reference. If these conditions are not met, 
+    reject and instruct the researcher to retrieve the missing sources 
+    before approval.
 
     
     Respond in this exact format:
