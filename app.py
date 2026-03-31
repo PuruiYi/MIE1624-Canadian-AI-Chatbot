@@ -357,14 +357,18 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     Flag if the response is vague, off-topic, or only partially answers.
 
     RULE 4 — ALL CLAIMS MUST BE EVIDENCE-BASED
-    Every claim in the response must be both traceable to the retrieved 
-    knowledge base and supported by credible external sources. 
-    Flag any claim that appears to come from outside the provided context or cannot be verified against the source documents. 
-    Try to use any web search results to verify claims. If the websearch tool was used, 
-    claims based on web search must include an external reference 
+    Every claim in the response must be traceable to the retrieved 
+    knowledge base or external sources. Flag any claim that appears to come from outside 
+    the provided context or cannot be verified against the source documents.
+    If the websearch tool was used, claims based on web search must include an external reference 
     (e.g., a URL, citation, or known authoritative source) 
     so the user can verify it independently. Never present unverified 
     claims as established fact.
+
+    Every response MUST include at least one live web search result 
+    with a cited URL or named reference. Try to include more web searches. 
+    If the researcher did not use the Web Search tool, reject and instruct them to search and 
+    incorporate findings before approval.
     
     Respond in this exact format:
     STATUS: APPROVED or REVISE
