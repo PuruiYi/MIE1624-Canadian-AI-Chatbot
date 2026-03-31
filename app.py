@@ -64,12 +64,12 @@ def load_api_key() -> str:
 # PART A — Knowledge Pipeline  (cached so it only runs once)
 # ─────────────────────────────────────────────────────────────────────────────
 DOCUMENT_METADATA = {
-    "Part1_Report.docx":                    {"type": "analysis",       "pillar": "all",            "part": "1"},
-    "Part2_Report.docx":                    {"type": "strategy",       "pillar": "all",            "part": "2"},
-    "Part3_Report.docx":                    {"type": "implementation", "pillar": "all",            "part": "3"},
-    "Part4_Narrative_Framework.docx":        {"type": "narrative",      "pillar": "all",            "part": "4"},
-    "hai_ai_index_report_2025.pdf":         {"type": "summary",        "scope": "general",         "part": "1"},
-    "trust-in-ai-en-report.pdf":            {"type": "source",         "country": "cross_country", "part": "1"},
+    "Part1_Report.docx":              {"type": "analysis",       "pillar": "all",            "part": "1"},
+    "Part2_Report.docx":              {"type": "strategy",       "pillar": "all",            "part": "2"},
+    "Part3_Report.docx":              {"type": "implementation", "pillar": "all",            "part": "3"},
+    "Part4_Narrative_Framework.docx": {"type": "narrative",      "pillar": "all",            "part": "4"},
+    "hai_ai_index_report_2025.pdf":   {"type": "summary",        "scope": "general",         "part": "1"},
+    "trust-in-ai-en-report.pdf":      {"type": "source",         "country": "cross_country", "part": "1"},
 }
 
 
@@ -83,8 +83,7 @@ def _clean_text(text: str) -> str:
 
 @st.cache_resource(show_spinner="Building vector store …")
 def build_vectorstore():
-    """Load documents, chunk, embed, and return a Chroma vectorstore."""
-    # 1. Load
+    """Load documents, chunk, embed, and return a FAISS vectorstore."""
     all_docs = []
     for fname in os.listdir(DOCS_FOLDER):
         fpath = os.path.join(DOCS_FOLDER, fname)
@@ -98,18 +97,15 @@ def build_vectorstore():
             d.metadata["source_file"] = fname
         all_docs.extend(docs)
 
-    # 2. Metadata
     for doc in all_docs:
         fname = doc.metadata.get("source_file", "")
         if fname in DOCUMENT_METADATA:
             doc.metadata.update(DOCUMENT_METADATA[fname])
 
-    # 3. Clean
     for doc in all_docs:
         doc.page_content = _clean_text(doc.page_content)
     all_docs = [d for d in all_docs if len(d.page_content) > 100]
 
-    # 4. Chunk
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
@@ -117,7 +113,6 @@ def build_vectorstore():
     )
     chunks = splitter.split_documents(all_docs)
 
-    # 5. Chunk metadata
     for i, chunk in enumerate(chunks):
         chunk.metadata["chunk_id"] = i
         chunk.metadata["char_count"] = len(chunk.page_content)
@@ -125,7 +120,6 @@ def build_vectorstore():
         part = chunk.metadata.get("part", "")
         chunk.metadata["citation_label"] = f"Part {part} — {source}" if part else source
 
-    # 6. Embed → FAISS (no SQLite dependency, works on Python 3.8)
     embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(documents=chunks, embedding=embedding_model)
     return vectorstore
@@ -226,8 +220,75 @@ def build_agents():
 # ─────────────────────────────────────────────────────────────────────────────
 # PART B+C — Run pipeline with validation
 # ─────────────────────────────────────────────────────────────────────────────
-def run_crew(question: str, researcher, analyst, writer) -> str:
-    """Execute the three-agent sequential pipeline."""
+
+# Maps tool names → human-readable status lines
+_TOOL_LABELS = {
+    "Knowledge Base Search": ("🔍", "searching the knowledge base"),
+    "Web Search":            ("🌐", "searching the web for recent information"),
+}
+
+def _make_step_callback(agent_label: str, status_container):
+    """
+    Return a step_callback for one agent.
+
+    CrewAI calls this after every reasoning step with an object that is either:
+      • AgentAction  — the agent decided to call a tool  (.tool, .tool_input)
+      • AgentFinish  — the agent is done              (.return_values)
+    We tolerate unknown shapes with a broad fallback.
+    """
+    def callback(step_output):
+        if status_container is None:
+            return
+        try:
+            # ── Tool call ──────────────────────────────────────────────────
+            if hasattr(step_output, "tool"):
+                tool_name = str(step_output.tool)
+                icon, action = _TOOL_LABELS.get(tool_name, ("⚙️", f"using {tool_name}"))
+                status_container.info(f"{icon} **{agent_label}** is {action}…")
+
+            # ── Agent finished its task ────────────────────────────────────
+            elif hasattr(step_output, "return_values"):
+                status_container.info(f"✅ **{agent_label}** finished — passing results on…")
+
+            # ── Observation / tool result coming back ──────────────────────
+            elif isinstance(step_output, tuple) and len(step_output) == 2:
+                action, _ = step_output
+                if hasattr(action, "tool"):
+                    tool_name = str(action.tool)
+                    icon, action_label = _TOOL_LABELS.get(tool_name, ("⚙️", f"using {tool_name}"))
+                    status_container.info(f"{icon} **{agent_label}** is {action_label}…")
+
+        except Exception:
+            # Never let a UI callback crash the pipeline
+            pass
+
+    return callback
+
+
+def run_crew(question: str, researcher, analyst, writer,
+             status_container=None) -> str:
+    """Execute the three-agent sequential pipeline with live status updates."""
+
+    # ── Attach per-agent step callbacks ──────────────────────────────────────
+    researcher.step_callback = _make_step_callback("🔬 AI Policy Researcher", status_container)
+    analyst.step_callback    = _make_step_callback("📊 Strategy Analyst",     status_container)
+    writer.step_callback     = _make_step_callback("✍️ Policy Communicator",  status_container)
+
+    # ── Task-transition announcements ─────────────────────────────────────────
+    _task_sequence = [
+        "📊 **Strategy Analyst** is interpreting findings through the Strategy 2.0 lens…",
+        "✍️ **Policy Communicator** is writing the final response…",
+        "✅ All three agents done — running validation…",
+    ]
+    _task_counter = {"n": 0}
+
+    def _task_callback(task_output):
+        idx = _task_counter["n"]
+        if status_container is not None and idx < len(_task_sequence):
+            status_container.info(_task_sequence[idx])
+        _task_counter["n"] += 1
+
+    # ── Tasks ─────────────────────────────────────────────────────────────────
     research_task = Task(
         description=(
             f"The user asked: '{question}'\n\n"
@@ -259,11 +320,16 @@ def run_crew(question: str, researcher, analyst, writer) -> str:
         context=[research_task, analysis_task],
     )
 
+    # Announce the very first agent before kickoff
+    if status_container is not None:
+        status_container.info("🔬 **AI Policy Researcher** is starting — retrieving facts from the knowledge base…")
+
     crew = Crew(
         agents=[researcher, analyst, writer],
         tasks=[research_task, analysis_task, writing_task],
         process=Process.sequential,
         verbose=False,
+        task_callback=_task_callback,
     )
     return str(crew.kickoff())
 
@@ -293,8 +359,10 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     RULE 4 — ALL CLAIMS MUST BE EVIDENCE-BASED
     Every claim in the response must be traceable to the retrieved 
     knowledge base. Flag any claim that appears to come from outside 
-    the provided context or cannot be verified against the source documents.
-    Attempt to provide an external reference (e.g., a URL, citation, or known authoritative source) 
+    the provided context or cannot be verified against the source documents. 
+    Try to use both the retrieved context and any web search results to verify claims. 
+    If the websearch tool was used, claims based on web search must include an external reference 
+    (e.g., a URL, citation, or known authoritative source) 
     so the user can verify it independently. Never present unverified 
     claims as established fact.
     
@@ -318,8 +386,8 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
 def ask_with_validation(question, researcher, analyst, writer, validator_llm, memory, status_container, max_retries=5):
     """Full pipeline: crew → validate → self-correct up to max_retries."""
     st.session_state.stop_requested = False
-    status_container.info("🔍 **Agents working …** Researcher → Analyst → Writer")
-    response = run_crew(question, researcher, analyst, writer)
+    # Live agent status is now shown inside run_crew via step/task callbacks
+    response = run_crew(question, researcher, analyst, writer, status_container=status_container)
 
     for attempt in range(max_retries):
         # ── Check if user clicked Stop ───────────────────────────────────
