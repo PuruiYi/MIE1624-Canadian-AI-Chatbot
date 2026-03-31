@@ -360,12 +360,6 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     Every claim in the response must be traceable to the retrieved 
     knowledge base or external sources. Flag any claim that appears to come from outside 
     the provided context or cannot be verified against the source documents.
-    Whenever the websearch tool was used, claims based on web search MUST include an external reference 
-    (e.g., a URL, citation, or known authoritative source) 
-    so the user can verify it independently. Never present unverified 
-    claims as established fact.
-    Whenever the RAG tool was used, claims based on the knowledge base MUST include a citation label referencing the source document
-    (e.g., "Part 2 — Part2_Report.docx") so the user can verify it independently.
 
     Every response MUST cite all knowledge base sources used by their 
     source document name. If the knowledge base is relevant and sufficient 
@@ -373,11 +367,20 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     base is irrelevant, discard it and rely solely on web search. If the 
     knowledge base is relevant but insufficient, supplement it with web 
     search. In both cases where web search is used, cite at least one 
-    result with a URL or named reference. If these conditions are not met, 
+    result with a URL or named reference. 
+
+    Whenever the websearch tool was used, claims based on web search MUST include an external reference 
+    (e.g., a URL, citation, or known authoritative source) 
+    so the user can verify it independently. Never present unverified 
+    claims as established fact.
+    Whenever the RAG tool was used, claims based on the knowledge base MUST include a citation label referencing the source document
+    (e.g., "Part 2 — Part2_Report.docx") so the user can verify it independently.
+    All claims can be based on either or both tools, but the above citation requirements MUST be met for the respective tool(s) used.
+
+    If these conditions are not met, 
     reject and instruct the researcher to retrieve the missing sources 
     before approval.
 
-    
     Respond in this exact format:
     STATUS: APPROVED or REVISE
     ISSUE: (if REVISE, describe the specific problem in one sentence)
