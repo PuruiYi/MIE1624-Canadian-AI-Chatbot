@@ -368,7 +368,9 @@ def validate_response(response: str, query: str, validator_llm) -> dict:
     Every response MUST include at least one live web search result 
     with a cited URL or named reference. Try to include more web searches. 
     If the researcher did not use the Web Search tool, reject and instruct them to search and 
-    incorporate findings before approval.
+    incorporate findings before approval. Try to include knowledge base results cited with its source document name, 
+    if it is relevant to the question. The more the better.
+
     
     Respond in this exact format:
     STATUS: APPROVED or REVISE
